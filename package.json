@@ -36,7 +36,8 @@
     "beefy": "^2.1.8",
     "browserify": "^14.1.0",
     "jest": "^19.0.2",
-    "prettier": "1.7.4"
+    "prettier": "1.7.4",
+    "scratchr2_translations": "git://github.com/LLK/scratchr2_translations.git#master"
   },
   "dependencies": {}
 }
