@@ -2,7 +2,7 @@
   "name": "scratchblocks",
   "version": "3.1.2",
   "description": "Render scratchblocks code to SVG images.",
-  "browser": "browser.js",
+  "browser": "build/scratchblocks.min.js",
   "main": "build/scratchblocks.min.js",
   "directories": {
     "test": "tests"
@@ -12,9 +12,9 @@
     "trailingComma": "es5"
   },
   "scripts": {
-    "build": "browserify browser.js -o build/scratchblocks.min.js -t [ babelify --presets [ es2015 babili ] ]",
+    "build": "browserify index.js -o build/scratchblocks.min.js -t [ babelify --presets [ es2015 babili ] ]",
     "fmt": "prettier --write *.js syntax/*.js scratch2/*.js",
-    "start": "beefy browser.js:bundle.js --live --port 8000",
+    "start": "beefy index.js:bundle.js --live --port 8000",
     "postinstall": "npm run build",
     "test": "jest"
   },
