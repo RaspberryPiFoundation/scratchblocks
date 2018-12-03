@@ -4,9 +4,6 @@ function assert(bool, message) {
 function isArray(o) {
   return o && o.constructor === Array
 }
-function extend(src, dest) {
-  return Object.assign({}, dest, src)
-}
 
 // List of classes we're allowed to override.
 
@@ -111,7 +108,7 @@ function minifyHash(hash) {
 var blocksBySelector = {}
 var blocksBySpec = {}
 var allBlocks = scratchCommands.map(function(command) {
-  var info = extend(parseSpec(command[0]), {
+  var info = Object.assign(parseSpec(command[0]), {
     shape: typeShapes[command[1]], // /[ bcefhr]|cf/
     category: categoriesById[command[2] % 100],
     selector: command[3],
@@ -213,6 +210,9 @@ var english = {
     "10 ^",
   ],
 
+  // Valid arguments to "sound effect" dropdown, for resolving ambiguous situations
+  soundEffects: ["pitch", "pan left/right"],
+
   // For detecting the "stop" cap / stack block
   osis: ["other scripts in sprite", "other scripts in stage"],
 
@@ -246,11 +246,48 @@ disambig("computeFunction:of:", "getAttribute:of:", function(children, lang) {
   return lang.math.indexOf(name) > -1
 })
 
+disambig("sb3:sound_changeeffectby", "changeGraphicEffect:by:", function(
+  children,
+  lang
+) {
+  // Sound if sound effect, otherwise default to graphic effect
+  for (var i = 0; i < children.length; i++) {
+    var child = children[i]
+    if (child.shape === "dropdown") {
+      var name = child.value
+      return lang.soundEffects.indexOf(name) > -1
+    }
+  }
+  return false
+})
+
+disambig("sb3:sound_seteffectto", "setGraphicEffect:to:", function(
+  children,
+  lang
+) {
+  // Sound if sound effect, otherwise default to graphic effect
+  for (var i = 0; i < children.length; i++) {
+    var child = children[i]
+    if (child.shape === "dropdown") {
+      var name = child.value
+      return lang.soundEffects.indexOf(name) > -1
+    }
+  }
+  return false
+})
+
 disambig("lineCountOfList:", "stringLength:", function(children, lang) {
   // List block if dropdown, otherwise operators
   var last = children[children.length - 1]
   if (!last.isInput) return
   return last.shape === "dropdown"
+})
+
+disambig("list:contains:", "sb3:operator_contains", function(children, lang) {
+  // List block if dropdown, otherwise operators
+  var first = children[0]
+  if (!first.isInput) return
+  return first.shape === "dropdown"
 })
 
 disambig("penColor:", "setPenHueTo:", function(children, lang) {
@@ -267,7 +304,7 @@ blocksBySelector["stopScripts"].specialCase = function(info, children, lang) {
   if (!last.isInput) return
   var value = last.value
   if (lang.osis.indexOf(value) > -1) {
-    return extend(blocksBySelector["stopScripts"], {
+    return Object.assign({}, blocksBySelector["stopScripts"], {
       shape: "stack",
     })
   }

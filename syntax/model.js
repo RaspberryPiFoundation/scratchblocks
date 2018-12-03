@@ -4,9 +4,6 @@ function assert(bool, message) {
 function isArray(o) {
   return o && o.constructor === Array
 }
-function extend(src, dest) {
-  return Object.assign({}, dest, src)
-}
 
 function indent(text) {
   return text
@@ -101,9 +98,7 @@ var Input = function(shape, value, menu) {
     shape === "string" || shape === "color" || shape === "dropdown"
 
   this.hasLabel = !(this.isColor || this.isInset)
-  this.label = this.hasLabel
-    ? new Label(value, ["sb-literal-" + this.shape])
-    : null
+  this.label = this.hasLabel ? new Label(value, "literal-" + this.shape) : null
   this.x = 0
 }
 Input.prototype.isInput = true
@@ -197,7 +192,7 @@ Input.prototype.translate = function(lang) {
   if (this.hasArrow) {
     var value = this.menu || this.value
     this.value = lang.dropdowns[value] || value
-    this.label = new Label(this.value, ["sb-literal-" + this.shape])
+    this.label = new Label(this.value, "literal-" + this.shape)
   }
 }
 
@@ -271,7 +266,7 @@ Block.fromJSON = function(lang, array, part) {
     )
   } else if (selector === "call") {
     var spec = args.shift()
-    var info = extend(parseSpec(spec), {
+    var info = Object.assign({}, parseSpec(spec), {
       category: "custom",
       shape: "stack",
       selector: "call",
@@ -298,7 +293,7 @@ Block.fromJSON = function(lang, array, part) {
     }
     return new Block(info, [new Label(args[0])])
   } else {
-    var info = extend(blocksBySelector[selector], {
+    var info = Object.assign({}, blocksBySelector[selector], {
       language: lang,
     })
     assert(info, "unknown selector: " + selector)
@@ -454,7 +449,7 @@ Block.prototype.translate = function(lang, isShallow) {
 /* Comment */
 
 var Comment = function(value, hasBlock) {
-  this.label = new Label(value, ["sb-comment-label"])
+  this.label = new Label(value, "comment-label")
   this.width = null
   this.hasBlock = hasBlock
 }

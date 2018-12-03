@@ -1,34 +1,53 @@
 
-const { parse, fromJSON } = require('../syntax')
+const { parse, fromJSON, loadLanguages } = require('../syntax')
 
-function getBlock(doc) {
+function getScript(doc) {
   expect(doc.scripts.length).toBe(1)
-  let script = doc.scripts[0]
+  return doc.scripts[0]
+}
+
+function parseBlock(code, options) {
+  let script = getScript(parse(code, options))
   expect(script.blocks.length).toBe(1)
   return script.blocks[0]
 }
 
-function parseBlock(code) {
-  return getBlock(parse(code))
-}
-
-function blockFromJSON(json) {
+function scriptFromJSON(json) {
   let obj = {
     scripts: [
-      [0, 0, [json]],
+      [0, 0, json],
     ],
   }
-  return getBlock(fromJSON(obj))
+  return fromJSON(obj)
 }
 
-function testBlock(code, json) {
-  let fromCode = parseBlock(code)
+function testScript(code, json, options) {
+  let fromCode = getScript(parse(code, options))
   expect(fromCode.toJSON()).toEqual(json)
-  //expect(fromCode.stringify()).toBe(code)
-  let fromJSON = blockFromJSON(json)
+  let fromJSON = scriptFromJSON(json)
   expect(fromJSON.stringify()).toBe(code)
-  //expect(fromJSON.toJSON()).toEqual(json)
   return fromCode
+}
+
+function testScriptScratch3(code, json) {
+  let script = getScript(parse(code, {
+    dialect: 'scratch3',
+  }))
+  expect(script.toJSON()).toEqual(json)
+}
+
+function testBlock(code, json, options) {
+  let script = testScript(code, [json], options)
+  expect(script.blocks.length).toBe(1)
+  return script.blocks[0]
+}
+
+function testBlockScratch3(code, json) {
+  let block = parseBlock(code, {
+    dialect: 'scratch3',
+  })
+  expect(block.toJSON()).toEqual(json)
+  return block
 }
 
 /* * */
@@ -86,9 +105,106 @@ describe('literals', () => {
 
 })
 
-describe('color literals', () => {
-  // TODO this is gonna be fun
+describe('scratch3 dialect', () => {
+  test('parses parentheses as strings', () => {
+    testBlockScratch3('say (Hello!) for (foo) secs', ['say:duration:elapsed:from:', 'Hello!', 'foo'])
+  })
+
+  test('define hats', () => {
+    testBlockScratch3('define foo (num) if <bool>', ['procDef', 'foo %n if %b', ['num', 'bool'], [1, false], false])
+  })
+
+  test('standalone reporters', () => {
+    testBlock('(foo)', ['readVariable', 'foo'])
+    testBlockScratch3('(foo)', ['readVariable', 'foo'])
+  })
 })
+
+
+describe('color literals', () => {
+  test('work', () => {
+    let b = testBlock('<touching color [#f0f] ?>', ["touchingColor:", 16711935])
+    const color = b.children[2]
+    expect(color.shape).toBe('color')
+    expect(color.value).toBe('#f0f')
+  })
+
+  test('can be round', () => {
+    expect(parseBlock('<touching color (#f0f)?>').toJSON()).toEqual(["touchingColor:", 16711935])
+  })
+})
+
+describe('recognise lists', () => {
+  test('not a list', () => {
+    testBlock('say (list)', ['say:', ['readVariable', 'list']])
+  })
+
+  test('from add command', () => {
+    testScript('say (list)\nadd [x] to [list v]', [
+      ['say:', ['contentsOfList:', 'list']],
+      ['append:toList:', 'x', 'list'],
+    ])
+  })
+
+  test('from insert command', () => {
+    testScript('say (list)\ninsert [x] at (99 v) of [list v]', [
+      ['say:', ['contentsOfList:', 'list']],
+      ['insert:at:ofList:', 'x', 99, 'list'],
+    ])
+  })
+
+  test('from show command', () => {
+    testScript('say (list)\nshow list [list v]', [
+      ['say:', ['contentsOfList:', 'list']],
+      ['showList:', 'list'],
+    ])
+  })
+
+  test('in scratch3 dialect', () => {
+    testScriptScratch3('say (list)\nshow list [list v]', [
+      ['say:', ['contentsOfList:', 'list']],
+      ['showList:', 'list'],
+    ])
+  })
+})
+
+describe('recognise scratch3 variables', () => {
+  test('not a variable', () => {
+    let block = testBlockScratch3('say (string)', ['say:', 'string'])
+    expect(block.children[1].isInput).toBe(true)
+  })
+
+  test('manually specify variable', () => {
+    let script = getScript(parse('say (foo :: variables)'), {
+      dialect: 'scratch3',
+    })
+    let foo = script.blocks[0].children[1]
+    expect(foo.isBlock).toBe(true)
+    expect(foo.info.category).toBe('variables')
+  })
+
+  test('from set command', () => {
+    testScriptScratch3('say (foo)\nset [foo v] to (quxx)', [
+      ['say:', ['readVariable', 'foo']],
+      ['setVar:to:', 'foo', 'quxx'],
+    ])
+  })
+
+  test('from show command', () => {
+    testScriptScratch3('say (foo)\nshow variable [foo v]', [
+      ['say:', ['readVariable', 'foo']],
+      ['showVariable:', 'foo'],
+    ])
+  })
+
+  test('ignore square strings', () => {
+    testScriptScratch3('say [foo]\nshow variable [foo v]', [
+      ['say:', 'foo'],
+      ['showVariable:', 'foo'],
+    ])
+  })
+})
+
 
 describe('disambiguation', () => {
   test('green: length of string', () => {
@@ -117,6 +233,48 @@ describe('disambiguation', () => {
     // invalid --not a math function
     expect(parseBlock('([e^ v] of (9)').info.category).toBe('sensing')
   })
+
+  test('looks: graphic effects', () => {
+    let b = testBlock('set [ghost v] effect to (100)', ['setGraphicEffect:to:', 'ghost', 100])
+    expect(b.info.category).toBe('looks')
+
+    b = testBlock('change [ghost v] effect by (5)', ['changeGraphicEffect:by:', 'ghost', 5])
+    expect(b.info.category).toBe('looks')
+  })
+
+  test('sound: sound effects', () => {
+    let b = testBlock('set [pitch v] effect to (100)', ['sb3:sound_seteffectto', 'pitch', 100])
+    expect(b.info.category).toBe('sound')
+    testBlock('set [pan left/right v] effect to (100)', ['sb3:sound_seteffectto', 'pan left/right', 100])
+
+    b = testBlock('change [pitch v] effect by (5)', ['sb3:sound_changeeffectby', 'pitch', 5])
+    expect(b.info.category).toBe('sound')
+  })
+
+  test('red: list contains', () => {
+    let b = testBlock('<[list v] contains [f] ?>', ['list:contains:', 'list', 'f'])
+    expect(b.info.category).toBe('list')
+  })
+
+  test('green: string contains', () => {
+    let b = testBlock('<[foo] contains [f] ?>', ['sb3:operator_contains', 'foo', 'f'])
+    expect(b.info.category).toBe('operators')
+    testBlock('<(foo) contains [f] ?>', ['sb3:operator_contains', ['readVariable', 'foo'], 'f'])
+  })
+
+  // TODO test disambiguation for other languages
+})
+
+describe('disambiguation', () => {
+  test('stop block: cap', () => {
+    let b = testBlock('stop [all v]', ['stopScripts', 'all'])
+    expect(b.info.shape).toBe('cap')
+  })
+
+  test('stop block: cap', () => {
+    let b = testBlock('stop [other scripts in sprite v]', ['stopScripts', 'other scripts in sprite'])
+    expect(b.info.shape).toBe('stack')
+  })
 })
 
 describe('standalone blocks', () => {
@@ -138,7 +296,17 @@ describe('standalone blocks', () => {
     expect(parseBlock('[thing] (123) (variable)').info.shape).toBe('stack')
     // expect(parseBlock('[attribute v] of [Stage v]').info.shape).toBe('stack') // oops v3 changed this
   })
+})
 
+describe('c blocks', () => {
+  test('if else', () => {
+    testBlock('if <> then \n  \nelse\nend', ['doIfElse', false, [], []])
+  })
+
+  test('standalone else', () => {
+    expect(parseBlock('else').info.shape).toBe('stack')
+    expect(parseBlock('end').info.shape).toBe('stack')
+  })
 })
 
 describe('comparison ops: < and > ', () => {
@@ -161,8 +329,16 @@ describe('comparison ops: < and > ', () => {
 // TODO test { } handling
 
 describe('other languages', () => {
+  const forums = require('../locales/forums.js')
+  loadLanguages(forums)
 
-  // scratchblocks.loadLanguages(scratchblocks.allLanguages.de)
+  // Japanese
+  test('Japanese', () => {
+      const options = {languages: ['en', 'ja']}
+      expect(parseBlock('⚑ がクリックされたとき', options).toJSON()).toEqual([
+              'whenGreenFlag',
+      ])
+  })
 
   /*
   // German

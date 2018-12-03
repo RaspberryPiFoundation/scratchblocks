@@ -33,31 +33,6 @@ Code Club use their own [lesson_format](https://github.com/CodeClub/lesson_forma
 
 This would probably be a good way to write a Scratch book.
 
-## Markdown
-
-Inline code in your markdown like this:
-    ```blocks
-    when flag clicked
-    go to x:(-50) y:(0)
-    ```
-
-Then use [markdown-it](https://github.com/markdown-it/markdown-it) or similar, and hook into the `highlight` option:
-
-```js
-var md = require('markdown-it')({
-  // Highlighter function. Should return escaped HTML,
-  // or '' if the source string is not changed and should be escaped externaly.
-  // If result starts with <pre... internal wrapper is skipped.
-  highlight: function (str, lang) {
-    if (lang === 'blocks') {
-      return scratchblocks.renderSVGString(str);  // returns SVG as a string
-    }
-    // other languages
-    return '';
-  }
-});
-```
-
 ## HTML
 
 Include the scratchblocks JS file on your webpage:
@@ -158,7 +133,8 @@ For more details, see [`CONTRIBUTING.md`](https://github.com/tjvr/scratchblocks/
 Many, many thanks to the [contributors](https://github.com/tjvr/scratchblocks/graphs/contributors)!
 
 * Authored by [tjvr](https://github.com/tjvr)
-* SVG proof-of-concept, shapes & filters by [as-com](https://github.com/as-com)
+* Icons derived from [Scratch Blocks](https://github.com/LLK/scratch-blocks) (Apache License 2.0)
+* Scratch 2 SVG proof-of-concept, shapes & filters by [as-com](https://github.com/as-com)
 * Anna helped with a formula, and pointed out that I can't read graphs
 * JSO designed the syntax and wrote the original [Block Plugin](http://wiki.scratch.mit.edu/wiki/Block_Plugin_\(1.4\))
 * Help with translation code from [joooni](http://scratch.mit.edu/users/joooni/)

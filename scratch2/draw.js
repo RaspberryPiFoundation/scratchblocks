@@ -1,7 +1,7 @@
 /* for constucting SVGs */
 
 function extend(src, dest) {
-  return Object.assign({}, dest, src)
+  return Object.assign({}, src, dest)
 }
 function assert(bool, message) {
   if (!bool) throw "Assertion failed! " + (message || "")
@@ -16,13 +16,15 @@ var directProps = {
 }
 
 var SVG = (module.exports = {
-  init(window, makeCanvas) {
+  init(window) {
     document = window.document
     var DOMParser = window.DOMParser
     xml = new DOMParser().parseFromString("<xml></xml>", "application/xml")
     SVG.XMLSerializer = window.XMLSerializer
+  },
 
-    SVG.makeCanvas = makeCanvas
+  makeCanvas() {
+    return document.createElement("canvas")
   },
 
   cdata(content) {

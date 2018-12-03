@@ -18,7 +18,6 @@ const {
   darkRect,
   bevelFilter,
   darkFilter,
-  desaturateFilter,
 } = require("./style.js")
 
 /* Label */
@@ -48,7 +47,7 @@ LabelView.toMeasure = []
 
 LabelView.prototype.measure = function() {
   var value = this.value
-  var cls = this.cls
+  var cls = "sb-" + this.cls
   this.el = SVG.text(0, 10, value, {
     class: "sb-label " + cls,
   })
@@ -61,9 +60,9 @@ LabelView.prototype.measure = function() {
   if (Object.hasOwnProperty.call(cache, value)) {
     this.metrics = cache[value]
   } else {
-    var font = /sb-comment-label/.test(this.cls)
+    var font = /comment-label/.test(this.cls)
       ? "bold 12px Helevetica, Arial, DejaVu Sans, sans-serif"
-      : /sb-literal/.test(this.cls)
+      : /literal/.test(this.cls)
         ? "normal 9px " + defaultFontFamily
         : "bold 10px " + defaultFontFamily
     this.metrics = cache[value] = LabelView.measure(value, font)
@@ -112,7 +111,9 @@ IconView.icons = {
 
 var InputView = function(input) {
   Object.assign(this, input)
-  this.label = newView(input.label)
+  if (input.label) {
+    this.label = newView(input.label)
+  }
 
   this.x = 0
 }
@@ -600,6 +601,10 @@ DocumentView.prototype.measure = function() {
 }
 
 DocumentView.prototype.render = function(cb) {
+  if (typeof ocbptions === "function") {
+    throw new Error("render() no longer takes a callback")
+  }
+
   // measure strings
   this.measure()
 
@@ -628,18 +633,13 @@ DocumentView.prototype.render = function(cb) {
         bevelFilter("bevelFilter", false),
         bevelFilter("inputBevelFilter", true),
         darkFilter("inputDarkFilter"),
-        desaturateFilter("desaturateFilter"),
       ].concat(makeIcons())
     ))
   )
 
   svg.appendChild(SVG.group(elements))
   this.el = svg
-
-  // nb: async API only for backwards/forwards compatibility reasons.
-  // despite appearances, it runs synchronously
-  cb(svg)
-  return this
+  return svg
 }
 
 /* Export SVG image as XML string */
@@ -661,7 +661,7 @@ DocumentView.prototype.exportSVG = function() {
   return "data:image/svg+xml;utf8," + xml.replace(/[#]/g, encodeURIComponent)
 }
 
-DocumentView.prototype.exportPNG = function(cb, scale) {
+DocumentView.prototype.toCanvas = function(cb, scale) {
   scale = scale || 1.0
 
   var canvas = SVG.makeCanvas()
@@ -677,6 +677,12 @@ DocumentView.prototype.exportPNG = function(cb, scale) {
     context.drawImage(image, 0, 0)
     context.restore()
 
+    cb(canvas)
+  }
+}
+
+DocumentView.prototype.exportPNG = function(cb, scale) {
+  this.toCanvas(function(canvas) {
     if (URL && URL.createObjectURL && Blob && canvas.toBlob) {
       var blob = canvas.toBlob(function(blob) {
         cb(URL.createObjectURL(blob))
@@ -684,7 +690,7 @@ DocumentView.prototype.exportPNG = function(cb, scale) {
     } else {
       cb(canvas.toDataURL("image/png"))
     }
-  }
+  }, scale)
 }
 
 /* view */

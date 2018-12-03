@@ -1,6 +1,3 @@
-function extend(src, dest) {
-  return Object.assign({}, dest, src)
-}
 function isArray(o) {
   return o && o.constructor === Array
 }
@@ -32,10 +29,11 @@ var {
   blockName,
 } = require("./blocks.js")
 
-function paintBlock(info, children, languages) {
+function paintBlock(info, children, languages, couldBeString) {
   var overrides = []
   if (isArray(children[children.length - 1])) {
     overrides = children.pop()
+    couldBeString = false
   }
 
   // build hash
@@ -46,14 +44,17 @@ function paintBlock(info, children, languages) {
       words.push(child.value)
     } else if (child.isIcon) {
       words.push("@" + child.name)
+      couldBeString = false
     } else {
       words.push("_")
+      couldBeString = false
     }
   }
-  var hash = (info.hash = minifyHash(words.join(" ")))
+  var string = words.join(" ")
+  var shortHash = (info.hash = minifyHash(string))
 
   // paint
-  var o = lookupHash(hash, info, children, languages)
+  var o = lookupHash(shortHash, info, children, languages)
   if (o) {
     var lang = o.lang
     var type = o.type
@@ -74,6 +75,8 @@ function paintBlock(info, children, languages) {
     if (type.spec === ". . .") {
       children = [new Label(". . .")]
     }
+
+    couldBeString = false
   }
 
   // overrides
@@ -82,6 +85,13 @@ function paintBlock(info, children, languages) {
   // loop arrows
   if (info.hasLoopArrow) {
     children.push(new Icon("loopArrow"))
+  }
+
+  if (couldBeString) {
+    var input = new Input("string", string)
+    // Store info in case this turns out to be a standalone reporter
+    input.stringBlockInfo = info
+    return input
   }
 
   var block = new Block(info, children)
@@ -100,7 +110,9 @@ function paintBlock(info, children, languages) {
   return block
 }
 
-function parseLines(code, languages) {
+function parseLines(code, languages, dialect) {
+  if (!dialect) dialect = DialectClassic
+
   var tok = code[0]
   var index = 0
   function next() {
@@ -129,16 +141,22 @@ function parseLines(code, languages) {
     var hasInputs = !!children.filter(function(x) {
       return !x.isLabel
     }).length
+
     var info = {
       shape: shape,
       category:
         shape === "define-hat"
           ? "custom"
-          : shape === "reporter" && !hasInputs ? "variables" : "obsolete",
+          : dialect === DialectClassic && shape === "reporter" && !hasInputs
+            ? "variables"
+            : "obsolete",
       categoryIsDefault: true,
       hasLoopArrow: false,
     }
-    return paintBlock(info, children, languages)
+
+    var couldBeString = dialect === DialectScratch3 && shape === "reporter"
+
+    return paintBlock(info, children, languages, couldBeString)
   }
 
   function makeMenu(shape, value) {
@@ -270,7 +288,7 @@ function parseLines(code, languages) {
     var first = children[0]
     if (first && first.isLabel && isDefine(first.value)) {
       if (children.length < 2) {
-        children.push(makeBlock("outline", []))
+        children.push(makeBlock("outline"))
       }
       return makeBlock("define-hat", children)
     }
@@ -283,6 +301,16 @@ function parseLines(code, languages) {
         (child.isReporter || child.isBoolean || child.isRing)
       ) {
         return child
+      }
+
+      // In scratch3 dialect strings can be in round parentheses
+      // but if we see this at the top-level, we cheat and assume it's a variable reporter
+      if (child.stringBlockInfo) {
+        var info = child.stringBlockInfo
+        info.category = "variables"
+        var block = new Block(info, [new Label(child.value)])
+        // nb. we skip image replacement here because we _probably_ don't need it
+        return block
       }
     }
 
@@ -316,6 +344,9 @@ function parseLines(code, languages) {
       if (/^[0-9e.-]*$/.test(value)) {
         return new Input("number", value)
       }
+      if (hexColorPat.test(value)) {
+        return new Input("color", value)
+      }
     }
 
     // number-dropdown
@@ -340,7 +371,7 @@ function parseLines(code, languages) {
     var block = makeBlock("reporter", children)
 
     // rings
-    if (block.info.shape === "ring") {
+    if (block.info && block.info.shape === "ring") {
       var first = block.children[0]
       if (
         first &&
@@ -542,7 +573,7 @@ function parseScripts(getLine) {
 
         if (b.isElse || b.isEnd) {
           b = new Block(
-            extend(b.info, {
+            Object.assign({}, b.info, {
               shape: "stack",
             }),
             b.children
@@ -646,13 +677,14 @@ function parseScripts(getLine) {
 
 function eachBlock(x, cb) {
   if (x.isScript) {
-    x.blocks.forEach(function(block) {
+    x.blocks = x.blocks.map(function(block) {
       eachBlock(block, cb)
+      return cb(block) || block
     })
   } else if (x.isBlock) {
-    cb(x)
-    x.children.forEach(function(child) {
+    x.children = x.children.map(function(child) {
       eachBlock(child, cb)
+      return cb(child) || child
     })
   } else if (x.isGlow) {
     eachBlock(x.child, cb)
@@ -668,14 +700,26 @@ var listBlocks = {
   "hideList:": 0,
 }
 
-function recogniseStuff(scripts) {
-  var customBlocksByHash = {}
-  var listNames = {}
+var variableBlocks = {
+  "setVar:to:": 0,
+  "changeVar:by:": 0,
+  "showVariable:": 0,
+  "hideVariable:": 0,
+}
+
+function recogniseStuff(scripts, dialect) {
+  // Object.create(null) is JS magic for an "empty dictionary"
+  // In ES6-land a Set would be more appropriate
+  var customBlocksByHash = Object.create(null)
+  var listNames = Object.create(null)
+  var variableNames = Object.create(null)
 
   scripts.forEach(function(script) {
-    var customArgs = {}
+    var customArgs = Object.create(null)
 
     eachBlock(script, function(block) {
+      if (!block.isBlock) return
+
       // custom blocks
       if (block.info.shape === "define-hat") {
         var outline = block.children[1]
@@ -741,14 +785,32 @@ function recogniseStuff(scripts) {
         if (input && input.isInput) {
           listNames[input.value] = true
         }
+
+        // variable names
+      } else if (
+        dialect === DialectScratch3 &&
+        variableBlocks.hasOwnProperty(block.info.selector)
+      ) {
+        var argIndex = variableBlocks[block.info.selector]
+        var inputs = block.children.filter(function(child) {
+          return !child.isLabel
+        })
+        var input = inputs[argIndex]
+        if (input && input.isInput) {
+          variableNames[input.value] = true
+        }
       }
     })
   })
 
   scripts.forEach(function(script) {
     eachBlock(script, function(block) {
-      // custom blocks
-      if (block.info.categoryIsDefault && block.info.category === "obsolete") {
+      if (
+        block.info &&
+        block.info.categoryIsDefault &&
+        block.info.category === "obsolete"
+      ) {
+        // custom blocks
         var info = customBlocksByHash[block.info.hash]
         if (info) {
           block.info.selector = "call"
@@ -756,37 +818,76 @@ function recogniseStuff(scripts) {
           block.info.names = info.names
           block.info.category = "custom"
         }
-
-        // list reporters
-      } else if (block.isReporter) {
-        var name = blockName(block)
-        if (!name) return
-        if (
-          block.info.category === "variables" &&
-          listNames[name] &&
-          block.info.categoryIsDefault
-        ) {
-          block.info.category = "list"
-          block.info.categoryIsDefault = false
-        }
-        if (block.info.category === "list") {
-          block.info.selector = "contentsOfList:"
-        } else if (block.info.category === "variables") {
-          block.info.selector = "readVariable"
-        }
+        return
       }
+
+      if (
+        block.isReporter &&
+        block.info.category === "variables" &&
+        block.info.categoryIsDefault
+      ) {
+        // We set the selector here for some reason
+        block.info.selector = "readVariable"
+      }
+
+      var name, info
+      if (
+        dialect === DialectClassic &&
+        block.isReporter &&
+        block.info.category === "variables" &&
+        block.info.categoryIsDefault
+      ) {
+        name = blockName(block)
+        info = block.info
+      } else if (dialect === DialectScratch3 && block.stringBlockInfo) {
+        name = block.value
+        info = block.stringBlockInfo
+      }
+      if (!name) return
+
+      // list reporters
+      if (listNames[name]) {
+        info.category = "list"
+        info.categoryIsDefault = false
+        info.selector = "contentsOfList:"
+
+        // variable reporters
+      } else if (variableNames[name]) {
+        info.category = "variables"
+        info.categoryIsDefault = false
+        info.selector = "readVariable"
+      } else {
+        return
+      }
+
+      // fix input
+      if (dialect === DialectClassic) {
+        return // already done
+      }
+      var block = new Block(info, [new Label(name)])
+      return block
     })
   })
 }
 
 function parse(code, options) {
-  var options = extend(
+  var options = Object.assign(
     {
       inline: false,
       languages: ["en"],
+      dialect: DialectClassic,
     },
     options
   )
+
+  switch (options.dialect) {
+    case DialectClassic:
+      break
+    case DialectScratch3:
+      break
+    default:
+      throw new Error("Unknown dialect: " + options.dialect)
+  }
 
   code = code.replace(/&lt;/g, "<")
   code = code.replace(/&gt;/g, ">")
@@ -800,12 +901,17 @@ function parse(code, options) {
 
   /* * */
 
-  var f = parseLines(code, languages)
+  var f = parseLines(code, languages, options.dialect)
   var scripts = parseScripts(f)
-  recogniseStuff(scripts)
+  recogniseStuff(scripts, options.dialect)
   return new Document(scripts)
 }
 
+var DialectClassic = "classic"
+var DialectScratch3 = "scratch3"
+
 module.exports = {
   parse: parse,
+  DialectClassic: DialectClassic,
+  DialectScratch3: DialectScratch3,
 }
